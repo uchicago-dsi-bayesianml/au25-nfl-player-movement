@@ -8,4 +8,4 @@ config
 *.csv
 *.parquet
 requirements.txt
-*.csv
+*.csv.DS_Store

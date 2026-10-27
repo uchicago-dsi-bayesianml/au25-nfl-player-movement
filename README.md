@@ -1,264 +1,122 @@
-# Bayes Final Project
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.png">
+  <img alt="The University of Chicago, MS in Applied Data Science. ADSP 32014 course project." src=".github/assets/banner-light.png">
+</picture>
 
-### Team: Adam's Family
+# Bayesian Kinematic Models of NFL Player Movement
 
-Mitch Verhelle, Claire Fenton, Richard Huang
+> **Example project from Autumn 2025.** This is a copy of [MitchellVerhelle/bayes_final_project](https://github.com/MitchellVerhelle/bayes_final_project), shown with the authors' work, commit history and branches intact. Their own write-up is [REPORT.md](REPORT.md). Course staff wrote this README and made the edits listed under [Changes by course staff](#changes-by-course-staff), including the section on [what to learn from this project](#what-to-learn-from-this-project).
 
-### Setup
-- Put training data from kaggle into train, leave names as is: "input_2023_w[01..18].csv", "output_2023_w[01..18].csv"
-- In the main folder, outside of any sub-folder, put "test_input.csv" and "test.csv" from Kaggle.
-- pip install requirements (Python=3.13.7) (Recommended: uv sync using uv.lock and pyproject.toml)
+Where will each player be a tenth of a second from now, and how sure can we be? The NFL Big Data Bowl 2026 on Kaggle asks for player positions after the ball is thrown, scored by root mean squared error. The team started from the physics of constant acceleration, put a probabilistic model around it, let the uncertainty depend on the player's position group, and drew the resulting predictive distributions on the field. A second model asks a different question of the same tracking data: will the targeted receiver catch the pass?
 
+## Summary
 
-#### Project
+A deterministic kinematic model predicts the next position from current position, speed, acceleration and direction. The Bayesian version keeps that prediction as the mean and learns the noise around it in PyMC, with half-normal priors on the x and y noise scales and NUTS sampling. A hierarchical version gives each position group, wide receivers, cornerbacks and so on, its own noise scale and systematic bias, drawn from global priors. Posterior predictive samples from these models are rolled forward and drawn as uncertainty cones and heatmaps on an animated field. Separately, a Bayesian logistic regression with receiver-specific random intercepts predicts whether a pass is completed from seven kinematic and spacing features, with prior and posterior predictive checks. On next-step prediction the Bayesian model matches the deterministic one, RMSE 0.54 against 0.537 yards, which is what the design implies: the two share a mean, and what the Bayesian model adds is a calibrated account of the spread.
 
-https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/overview
+## Team and contributions
 
-This project implements Bayesian models for predicting NFL player movement using tracking data from the 2023 season. The goal is to predict the next-step position of players given their current kinematic state (position, speed, acceleration, direction) as well as predict whether or not the play was successful (i.e. the receiver caught the ball). The data and foundation for this project is from the NFL Big Data Bowl 2026 hosted on Kaggle. 
+Team "Adam's Family", Autumn 2025.
 
-#### Overview
+- **Mitch Verhelle** ([@MitchellVerhelle](https://github.com/MitchellVerhelle)): the package design, the kinematic and Bayesian kinematic models, the training pipeline, the field visualizations and animations, the play-success model class on `mitch_branch`, and most of the write-up.
+- **Richard Huang** ([@rrhuang](https://github.com/rrhuang)): the hierarchical model and the heatmap visualization, the demo, and the write-up's hierarchical section.
+- **Claire Fenton** ([@chelfen](https://github.com/chelfen)): the Bayesian logistic regression for play success in `bayesian_regression.ipynb`, with its predictive checks.
 
-We developed multiple Bayesian approaches to model player movement, extending a deterministic kinematic model with probabilistic uncertainty quantification. The models use PyMC for Bayesian inference and provide posterior predictive distributions over future player positions.
+The project ran from December 2 to 10, 2025, on feature branches with a merged pull request. The attributions follow the [commit history](https://github.com/uchicago-dsi-bayesianml/au25-nfl-player-movement/commits/main).
 
-#### Data
+## Getting started
 
-The NFL Big Data Bowl is an annual challenge hosted by the NFL that aims to examine how large amounts of football play data could generate real, potentially actionable, insights into various play metrics or strategies. This year, the data provided by the NFL included real-time data on player positions and movements, with the competition aiming for predicting player movements after the snap (based on their resulting X, Y coordinate on the field).
+The environment is managed with uv and pinned in `uv.lock`; the authors used Python 3.13.
 
-Alongside this, we also engineered a "successful_play" flag when the targeted receiver ended up within a meter's distance of the ball. This was used in predicting successful plays from previous player movements.
-
-**Files**
-
-train/
-
-input_2023_w[01-18].csv
-
-The input data contains tracking data before the pass is thrown
-
-- `game_id`: Game identifier, unique (numeric)
-- `play_id`: Play identifier, not unique across games (numeric)
-- `player_to_predict`: whether or not the x/y prediction for this player will be scored (bool)
-- `nfl_id`: Player identification number, unique across players (numeric)
-- `frame_id`: Frame identifier for each play/type, starting at 1 for each game_id/play_id/file type (input or output) (numeric)
-- `play_direction`: Direction that the offense is moving (left or right)
-- `absolute_yardline_number`: Distance from end zone for possession team (numeric)
-- `player_name`: player name (text)
-- `player_height`: player height (ft-in)
-- `player_weight`: player weight (lbs)
-- `player_birth_date`: birth date (yyyy-mm-dd)
-- `player_position`: the player's position (the specific role on the field that they typically play)
-- `player_side`: team player is on (Offense or Defense)
-- `player_role`: role player has on play (Defensive Coverage, Targeted Receiver, Passer or Other Route Runner)
-- `x`: Player position along the long axis of the field, generally within 0 - 120 yards. (numeric)
-- `y`: Player position along the short axis of the field, generally within 0 - 53.3 yards. (numeric)
-- `s`: Speed in yards/second (numeric)
-- `a`: Acceleration in yards/second^2 (numeric)
-- `o`: orientation of player (deg)
-- `dir`: angle of player motion (deg)
-- `num_frames_output`: Number of frames to predict in output data for the given game_id/play_id/nfl_id. (numeric)
-- `ball_land_x`: Ball landing position position along the long axis of the field, generally within 0 - 120 yards. (numeric)
-- `ball_land_y`: Ball landing position along the short axis of the field, generally within 0 - 53.3 yards. (numeric)
-
-output_2023_w[01-18].csv
-
-The output data contains tracking data after the pass is thrown.
-
-- `game_id`: Game identifier, unique (numeric)
-- `play_id`: Play identifier, not unique across games (numeric)
-- `nfl_id`: Player identification number, unique across players. (numeric)
-- `frame_id`: Frame identifier for each play/type, starting at 1 for each game_id/play_id/ file type (input or output). The maximum value for a given game_id, play_id and nfl_id will be the same as the num_frames_output value from the corresponding input file. (numeric)
-- `x`: Player position along the long axis of the field, generally within 0-120 yards. (TARGET TO PREDICT)
-- `y`: Player position along the short axis of the field, generally within 0 - 53.3 yards. (TARGET TO PREDICT)
-
-https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/data
-
-#### Models Implemented
-
-1. **Bayesian Kinematic Model** (`bayes_kinematic.py`)
-
-Position updates:
-
-$$
-x_{t+\Delta t} = x_t 
-    + s_t \cos(\theta_t)\,\Delta t 
-    + \tfrac{1}{2} a_t \cos(\theta_t)\,\Delta t^2
-$$
-
-$$
-y_{t+\Delta t} = y_t 
-    + s_t \sin(\theta_t)\,\Delta t 
-    + \tfrac{1}{2} a_t \sin(\theta_t)\,\Delta t^2
-$$
-
-Observed next-step positions are modeled as Gaussian noise around the deterministic means:
-
-$$
-x_{\text{next}} \sim \mathcal{N}(\mu_x, \sigma_x)
-$$
-
-$$
-y_{\text{next}} \sim \mathcal{N}(\mu_y, \sigma_y)
-$$
-
-Priors on noise:
-
-```pyhton
-with pm.Model() as model:
-    sigma_x = pm.HalfNormal("sigma_x", sigma=1.0)
-    sigma_y = pm.HalfNormal("sigma_y", sigma=1.0)
+```sh
+uv sync
 ```
 
-This means we expect 0-1+ yards of noise, but very small amount of noise, on a weak prior.
+Get the data as described under [Data](#data), then open the notebooks in this order:
 
-Posterior Inference. Samples from the joint posterior:
+| Notebook | What it does |
+|---|---|
+| `eda.ipynb` | Explores plays with animations, then fits the deterministic baseline and the Bayesian kinematic model on weeks 1 to 3 and draws predictions with 95 percent cones. |
+| `eda_2.ipynb` | Fits the hierarchical model on week 1 and renders the heatmap animation that `demo.html` and `demo_frames/` were made from. |
+| `bayesian_regression.ipynb` | Builds play-level features, fits the Bayesian logistic regression, and runs prior and posterior predictive checks. |
 
-$$
-p(\sigma_x, \sigma_y \mid x_{\text{next}}, y_{\text{next}}, \mu_x, \mu_y)
-$$
+The models are importable from the `models` package and follow one interface: `fit`, `predict_dataframe`, `rmse`, and for Bayesian models `posterior_samples_for_rows`. `tests/test_abstracts.py` exercises that interface with dummy models, and `pipeline.py` builds step-level datasets from the weekly files and trains and evaluates a model on chosen weeks.
 
-```pyhton
-with pm.Model() as model:
-    sigma_x = pm.HalfNormal("sigma_x", sigma=1.0)
-    sigma_y = pm.HalfNormal("sigma_y", sigma=1.0)
+## Data
 
-    pm.Normal("x_next", mu=mu_x, sigma=sigma_x, observed=x_next_obs)
-    pm.Normal("y_next", mu=mu_y, sigma=sigma_y, observed=y_next_obs)
+Data files are never committed to this repository. Git ignores every CSV.
 
-    trace = pm.sample(
-        draws=draws,
-        tune=tune,
-        target_accept=target_accept,
-        chains=chains,
-        return_inferencedata=True,
-    )
-```
+- **Source:** the [NFL Big Data Bowl 2026 – Prediction](https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction) competition on Kaggle: 2023 season tracking data at ten frames per second, with positions, speed, acceleration, orientation and direction for every player, split into the frames before the throw (input) and after it (output), for 18 weeks.
+- **Terms:** Kaggle competition rules. The data is for competition and non-commercial use and must not be redistributed, which is why it isn't here.
+- **How to get it:** join the competition on Kaggle, accept the rules, and download the files.
+- **Where to put it:** the weekly files `input_2023_w01.csv` to `w18` and `output_2023_w01.csv` to `w18` in `train/`, and `test_input.csv` and `test.csv` in the repository root.
 
-This learns the posterior distributions of $\sigma_x$ and $\sigma_y$ from the data. We use the posterior means of $\sigma_x$ and $\sigma_y$ as the learned noise scales when sampling.
+The `kaggle_evaluation/` folder is Kaggle's own submission harness for the competition, included as provided.
 
-Posterior Predictive Distribution. Future movement samples are drawn as:
+## Project structure
 
-$$
-x^\*(t+\Delta t) \sim \mathcal{N}(\mu_x, \sigma_x)
-$$
+| Path | Contents |
+|---|---|
+| `REPORT.md` | The authors' write-up: data dictionary, the three models with equations and code, visualizations, RMSE. |
+| `models/model_base.py`, `bayes_model_base.py` | Abstract base classes: a common prediction interface, RMSE evaluation, multi-step rollouts, posterior sampling. |
+| `models/kinematic.py`, `kinematic_boundary.py` | The deterministic baseline, and a variant that keeps players on the field. |
+| `models/bayes_kinematic.py` | The Bayesian kinematic model. |
+| `models/bayes_kinematic_hierarchical.py` | The hierarchical version with position and optional player levels. |
+| `models/bayes_kinematic_hmm.py` | A regime-mixture model; see the note under [what to learn](#what-to-learn-from-this-project). |
+| `models/pipeline.py` | Step-level dataset construction and train-and-evaluate helpers over weeks. |
+| `tools/` | Field drawing, play animation, prediction cones and heatmaps, animation export. |
+| `tests/` | Tests of the model interface. |
+| `demo.html`, `demo_frames/`, `output2_cropped.mp4` | The hierarchical model's heatmap animation. |
+| Branch `mitch_branch` | `models/play_success_bayes.py`, the play-success model as a class, and its notebook. |
 
-$$
-y^\*(t+\Delta t) \sim \mathcal{N}(\mu_y, \sigma_y)
-$$
+## Method
 
-```pyhton
-def posterior_samples_for_rows(self, df, n_samples=100):
-    # 1) Compute deterministic means from the kinematic model
-    mu_x, mu_y = self.base._step_array(
-        df["x"].to_numpy(float),
-        df["y"].to_numpy(float),
-        df["s"].to_numpy(float),
-        df["a"].to_numpy(float),
-        df["dir"].to_numpy(float),
-    )
+**Kinematics.** With speed $s$, acceleration $a$, direction $\theta$ and time step $\Delta t = 0.1$ s, the next position is the current one plus $\bar v \cos\theta\,\Delta t$ and $\bar v \sin\theta\,\Delta t$, where $\bar v$ is the average of the current speed and the speed after accelerating for one step.
 
-    # 2) Use posterior means of sigma_x, sigma_y as learned noise scales
-    sigma_x = float(self.trace.posterior["sigma_x"].mean())
-    sigma_y = float(self.trace.posterior["sigma_y"].mean())
+**Bayesian kinematic model.** The observed next position is Normal around that prediction, with separate noise scales for x and y. Both scales have HalfNormal(1) priors, in yards. NUTS, two chains of 1,000 draws after 1,000 tuning steps, or ADVI when speed matters. For prediction, the posterior means of the two scales are plugged in and future positions are sampled around the kinematic mean, then rolled forward several frames.
 
-    n_rows = len(df)
+**Hierarchical model.** Each position group gets its own noise scales, Normal around the global scales with spread 0.3, and its own bias in x and y, Normal(0, 0.2). A player level nested inside positions is implemented and off by default. The heatmaps come from kernel density estimates of posterior samples at one and two frames ahead, clipped to the field.
 
-    # 3) Sample future positions around the deterministic means
-    x_samps = np.random.normal(mu_x, sigma_x, size=(n_samples, n_rows))
-    y_samps = np.random.normal(mu_y, sigma_y, size=(n_samples, n_rows))
-    return x_samps, y_samps
-```
+**Play success.** A play counts as successful when the targeted receiver ends up close to where the ball lands, about 18 percent of plays; the write-up gives the threshold as half a yard in one place and a meter in another. Seven standardized features, the receiver's final speed, acceleration and direction, path length, path curvature, and the mean and final distance to the nearest defender, enter a logistic regression with a receiver-specific random intercept whose scale has an Exponential(1) hyperprior. NUTS with four chains; prior and posterior predictive checks with ArviZ.
 
-Here we use the learned $\sigma_x$ and $\sigma_y$ (from the posterior) together with the ($\mu_x$, $\mu_y$) to sample possible next-frame predictions. Then by rolling out more predictive frames, we are able to get a probabilistic picture of where the player is going to move next.
+### What is Bayesian here
 
-   - Extends a deterministic kinematic model (physics-based movement equations) with Bayesian uncertainty
-   - Models noise in x and y (sigma_x, sigma_y) with HalfNormal priors (good for modeling standard deviations)
-   - Uses MCMC (NUTS) for posterior sampling (NUTS is like MCMC but more efficiently picks where it samples)
-<img width="963" height="372" alt="output2" src="https://github.com/user-attachments/assets/94e2954c-48d1-4d19-b5b1-35b01bcb2681" />
-<img width="1175" height="497" alt="output3" src="https://github.com/user-attachments/assets/2d402e55-e2ea-49e5-9918-a8e05bb7d43a" />
-   - Provides posterior predictive distributions for next-step positions
-<img width="1160" height="499" alt="output" src="https://github.com/user-attachments/assets/06d1b775-c4d4-4b71-87e3-5a057e2c5ddb" />
+The kinematic equations are a physical model with no free parameters; the Bayesian layer treats what physics leaves out as noise with a distribution and learns that distribution from data. The half-normal priors say the noise is positive and probably under a yard, and the posterior over the noise scales is what a single number could not give: a statement of how predictable a player's next step is. The hierarchical model is partial pooling in its textbook form. Position groups with little data are pulled toward the global scale, groups with a lot of data move away from it, and the biases let the model learn, for example, that a position group systematically outruns or undershoots its kinematic prediction. The logistic regression's random intercepts do the same for receivers. The prior and posterior predictive checks in the regression notebook are the course's model-criticism material applied properly: simulate from the prior to see whether it is sensible, simulate from the posterior to see whether the model reproduces the data.
 
-RMSE: .54 for Bayesian Kinematic and .537 for Deterministic Kinematic Models.
+## Results
 
-2. **Hierarchical Bayesian Kinematic Model** (`bayes_kinematic_hierarchical.py`)
-   - Adds hierarchical structure to account for player and position-specific differences
-   - Global noise scales with position-specific deviations
-   - Player-specific noise scales nested within positions
-   - Captures that different player types (WR, RB, CB, etc.) may have different movement patterns and predictability
-  
-     Hierarchies followed the following levels:
+Reported by the authors in the write-up.
 
-     1. Global (Basic kinematic)
-     2. Position Specific (WR, RB, etc.)
-     3. Player Specific
-    
-     Starting from 2, we can apply a unique set of position-specific parameters for each unique position:
+| Model | Next-step RMSE (yards) |
+|---|---|
+| Deterministic kinematic | 0.537 |
+| Bayesian kinematic | 0.54 |
 
-     ```
-     σ_x_pos[i] ~ Normal(σ_x_global, 0.3)  # Position noise centered at global
-      σ_y_pos[i] ~ Normal(σ_y_global, 0.3)
-      
-      bias_x_pos[i] ~ Normal(0, 0.2)  # Position-specific systematic biases
-      bias_y_pos[i] ~ Normal(0, 0.2)
-     ```
-  
-With this, we developed a heatmap visualization method to visualize how players could move in a given play. The heatmap visualization methodology is as follows:
+The near-equality is the honest outcome: both models predict the same mean. The Bayesian model's contribution is the predictive distribution, shown in the write-up as posterior predictive densities that lie on top of the observed next positions, and in the animations as cones and heatmaps that widen as predictions are rolled further ahead. No RMSE is reported for the hierarchical model. For play success, the write-up shows the posterior coefficient distributions and how the predicted probability varies with the nearest-defender distance, the receiver's distance to the landing spot, and the defenders' tackle range.
 
-  1. Posterior sampling: For each of the players at time step t after the snap, generate a number of posterior samples (compute deterministic mean from kinematic (μ_x, μ_y), sample from Normal(μ_x, σ_x) and Normal(μ_y, σ_y) using learned noise scales)
-  2. Sample validation: Filters samples to valid field coordinates (0 ≤ x ≤ 120, 0 ≤ y ≤ 53.3) to ensure that the potential movements are at least on the football field (no teleporting for our players...)      
-  3. KDE density estimation: Creates a grid on the football field and computes probability density at each grid point based on the above samples     
-  4. Visual tweaking: emphasize high-density regions and overlays heatmaps at t+1 and t+2 on field. 
+## What to learn from this project
 
+Course staff added this section. The engineering and the Bayesian reasoning are both sound; the points below are about evidence and naming.
 
+- **Put the numbers where they can be checked.** The two RMSE values were added to the write-up by hand in the final commit. No committed notebook computes them, and the write-up doesn't say which weeks were held out. The pipeline's default evaluates on the last training week, which would be a leak. A results notebook with the split stated would have settled this.
+- **Report every model you compare.** The hierarchical model is the project's most interesting idea and has no number next to it. Did position-specific noise and bias reduce RMSE, or only change the spread? The repository can't say.
+- **Name models by what they do.** The file called an HMM defines a transition matrix and never uses it; the regime weights are a softmax over speed and acceleration, so it is a feature-gated mixture, a reasonable model under the wrong name. The write-up doesn't advertise it, so the fix is in the code.
+- **Keep scales positive.** The hierarchical model's position-level noise scales have Normal priors and are passed through an absolute value. A HalfNormal or LogNormal prior on the deviation would say what is meant.
+- **Use the posterior, not just its mean.** Prediction plugs in the posterior means of the noise scales. Sampling the scales from the posterior along with the positions would propagate the uncertainty the model worked to estimate. It would change little here, because the posteriors are tight, but it is the right habit.
+- **Small things.** The play-success model class lives on an unmerged branch; `pyproject.toml` is a generic environment named "clinic-env" with about 150 unpinned dependencies, several unrelated to the project, pinned only through `uv.lock`; the `LICENSE` file is the MIT template with its placeholders and web page front matter still in place, so it doesn't yet grant anything.
 
+What the project does well: a model interface that made four models comparable with one evaluator; a deterministic baseline reported alongside the Bayesian models rather than beaten by them; priors with units and reasons; hierarchical structure used for a real grouping; predictive checks before and after fitting; and uncertainty made visible on the field, which is the whole point of the Bayesian layer.
 
-![alt text](https://github.com/MitchellVerhelle/bayes_final_project/blob/main/demo_frames/frame0000037.png "Post Snap Frame")
+## About this project
 
+This project was built in Bayesian Machine Learning with Generative AI Applications (ADSP 32014), part of the Master of Science in Applied Data Science at the University of Chicago, in Autumn 2025. It is shown here as an example for later cohorts.
 
-   see demo.html for more!
+## Changes by course staff
 
-   
-  
-3. **Bayesian Logistic Regression Model** (`PyMC`)
-   - Incorporates seven features/beta coefficients based on player/ball movement
-   - Draws from Bernoulli likelihood distribution for binary outcome
-   - Uses MCMC (NUTS) for posterior sampling
-   - Predicts probability of play being successful (within 0.5 yards of target)
+Course staff forked the authors' repository, with all branches, and made these edits. The authors' code and notebooks are unchanged.
 
-#### Methodology
+- Renamed the authors' README to `REPORT.md`, unchanged, and added this README with the program banner.
+- Removed two `.DS_Store` files and added them to `.gitignore`.
 
-1. **Data Processing**: Convert raw tracking data into step-level datasets with current kinematic features and next-step targets
-2. **Model Fitting**: Use PyMC to perform Bayesian inference, learning posterior distributions over model parameters
-3. **Prediction**: Generate posterior predictive samples for future positions, providing both point estimates (posterior means) and uncertainty quantification
-4. **Evaluation**: Compare models on held-out test data and visualize predictions with uncertainty
+## License
 
-#### Results
-
-We developed a method to visualize both the kinematic components and the successful play results, seen in the demos provided in the repository.
-
-Example with `BayesianKinematicModel`
-![output](https://github.com/user-attachments/assets/38a71e83-3c11-4a0d-92f1-c4fa8182d08f)
-
-
-Example with `HierarchicalBayesianKinematicModel` with heatmap visualization
-![hippo](https://s4.ezgif.com/tmp/ezgif-4df1c58bd6f68885.gif)
-
-Example with `BayesianPlaySuccessModel` (in mitch_branch)
-
-https://github.com/user-attachments/assets/7159380c-a971-485b-abae-a77b06273e71
-
-https://github.com/user-attachments/assets/94016daa-61c6-43c1-a390-71c0b0ff2d10
-
-Betas
-- `tackle_range`
-<img width="690" height="390" alt="tackle_range vs p_success" src="https://github.com/user-attachments/assets/5cc2f870-a246-4dd1-b8ce-2db2fdbfb08a" />
-<img width="661" height="152" alt="beta tackle_range" src="https://github.com/user-attachments/assets/2e40b5ad-2540-4d1a-8a5d-857b511e3656" />
-
-- `dist_to_nearest_defender`
-<img width="689" height="390" alt="dist_to_nearest_defender" src="https://github.com/user-attachments/assets/443d86e7-d87e-4b46-b2c3-4a86afcf6843" />
-<img width="661" height="152" alt="beta dist_to_nearest_defender" src="https://github.com/user-attachments/assets/b7a20d2e-d0ce-42fa-af49-3173ed6af548" />
-
-- `dist_to_target_land`
-<img width="690" height="390" alt="dist_to_target_land vs p_success" src="https://github.com/user-attachments/assets/a451b9d9-9ddb-42d1-a6f4-fbeffe57a446" />
-<img width="661" height="153" alt="beta dist_to_target_land" src="https://github.com/user-attachments/assets/5c53886b-0199-4341-b3dd-57899041571c" />
-
-
+The repository's `LICENSE` file is the MIT template with the copyright holder left blank. Treat the code as the authors' and ask them before reusing it; they can complete the license with their names.
